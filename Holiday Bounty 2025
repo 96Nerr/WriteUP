@@ -51,16 +51,62 @@ Array byte target yang digunakan sebagai pembanding diekstraksi langsung dari me
 Proses pembalikan dilakukan menggunakan script Python sederhana untuk mengotomatisasi decoding seluruh byte target. Setelah flag berhasil direkonstruksi dan dimasukkan ke program, output yang dihasilkan adalah “Correct!”, yang menandakan bahwa flag yang diperoleh valid. Challenge ini menggunakan teknik obfuscation sederhana berbasis XOR dan rotasi bit, dan dapat diselesaikan sepenuhnya melalui analisis assembly dan pembalikan transformasi.
 
 4. Smart Toaster TBF1{moM_1o0k_1M_A_HarDWare_H@cker_Now}
-Sebuah perangkat internet-connected toaster menolak berfungsi kecuali pengguna memasukkan license key yang valid. Firmware perangkat berhasil diekstrak dalam bentuk file firmware.elf. Tujuan challenge ini adalah menganalisis firmware tersebut untuk menemukan mekanisme proteksi dan mendapatkan flag tersembunyi, tanpa harus benar-benar menjalankan firmware di perangkat asli.
-Langkah pertama adalah mengidentifikasi jenis dan arsitektur firmware menggunakan readelf
+Sebuah smart toaster yang terhubung ke internet menolak beroperasi kecuali pengguna memasukkan license key yang valid. Firmware perangkat berhasil diperoleh dalam bentuk file firmware.elf. Tujuan challenge ini adalah menganalisis firmware tersebut untuk menemukan flag tersembunyi tanpa harus menjalankan firmware secara langsung di perangkat aslinya.
+Langkah pertama adalah mengidentifikasi tipe dan arsitektur firmware menggunakan perintah readelf:
 readelf -h firmware.elf
-Hasilnya menunjukkan bahwa file tersebut adalah: ELF 32-bit, Little Endian, Target arsitektur: Atmel AVR 8-bit microcontroller. Ini menandakan bahwa firmware ditujukan untuk embedded system, sehingga analisis dilakukan menggunakan toolchain AVR seperti avr-objdump.
-Untuk mencari petunjuk awal, dilakukan ekstraksi string ASCII:
-strings firmware.elf | grep -i flag
-Ditemukan simbol bernama: encrypted_flag, itu berarti Flag sudah tersimpan di dalam firmware dan Flag tidak dalam bentuk plaintext
-Untuk mengetahui lokasi tepat data flag terenkripsi, digunakan nm:
+Outputnya:
+ELF Header:
+  Magic:   7f 45 4c 46 01 01 01 00 00 00 00 00 00 00 00 00 
+  Class:                             ELF32
+  Data:                              2's complement, little endian
+  Version:                           1 (current)
+  OS/ABI:                            UNIX - System V
+  ABI Version:                       0
+  Type:                              EXEC (Executable file)
+  Machine:                           Atmel AVR 8-bit microcontroller
+  Version:                           0x1
+  Entry point address:               0x0
+  Start of program headers:          52 (bytes into file)
+  Start of section headers:          10936 (bytes into file)
+  Flags:                             0x5, avr:5
+  Size of this header:               52 (bytes)
+  Size of program headers:           32 (bytes)
+  Number of program headers:         2
+  Size of section headers:           40 (bytes)
+  Number of section headers:         14
+  Section header string table index: 11
+Informasi ini menunjukkan bahwa firmware merupakan firmware embedded system berbasis AVR, sehingga analisis lanjutan perlu menggunakan tool khusus AVR seperti avr-objdump.
 
+Langkah kedua, Setelah mengetahui jenis firmware, langkah selanjutnya adalah mencari simbol yang berkaitan dengan flag. Hal ini dilakukan menggunakan perintah nm:
+nm firmware.elf | grep encrypted_flag
+Outputnya: 00800100 D encrypted_flag
+Hal ini mengindikasikan bahwa flag telah disimpan langsung di dalam firmware dalam bentuk data global, namun masih dalam keadaan terenkripsi.
 
+Langkah ketiga, Karena encrypted_flag berada di section .data, langkah berikutnya adalah melakukan dump isi section tersebut menggunakan avr-objdump:
+avr-objdump -s -j .data firmware.elf
+Outputnya:
+Contents of section .data:
+ 800100 f1e7e394 dec8cae8 fa94ca95 cefa94e8
+ 800110 fae4faed c4d7e1f2 c4d7c0fa ede5c6ce
+ 800120 c0d7faeb cad2d800
+Byte-byte tersebut dimulai tepat dari alamat 0x800100, sesuai dengan alamat simbol encrypted_flag. Data tidak dapat dibaca sebagai ASCII dan diakhiri dengan byte 00, yang menandakan sebuah null-terminated string.
+Dengan demikian, dapat dipastikan bahwa data tersebut adalah flag yang telah dienkripsi.
+
+Langkah keempat, lakukan analisis skema enkripsi. Berdasarkan karakteristik tersebut, besar kemungkinan enkripsi yang digunakan adalah XOR satu byte, yang merupakan metode enkripsi sederhana dan sering digunakan pada challenge CTF embedded.
+Untuk mendekripsi flag, dilakukan bruteforce XOR untuk seluruh kemungkinan key 1 byte (0x00–0xFF) menggunakan Python. Hasil dekripsi kemudian difilter agar hanya menampilkan karakter ASCII yang dapat dibaca.
+script python untuk decrypt:
+enc = bytes.fromhex(
+    "f1e7e394dec8cae8fa94ca95cefa94e8"
+    "fae4faedc4d7e1f2c4d7c0faede5c6ce"
+    "c0d7faebcad2d8"
+)
+
+for k in range(256):
+    dec = bytes(b ^ k for b in enc)
+    if all(32 <= c < 127 for c in dec):
+        print(hex(k), dec)
+Script Python ini digunakan untuk mendekripsi data encrypted_flag yang diduga dienkripsi menggunakan XOR satu byte, dengan cara mencoba seluruh kemungkinan kunci XOR (0–255) dan menampilkan hasil yang masuk akal (berupa teks ASCII yang dapat dibaca)
+didapatkan flagnya TBF1{moM_1o0k_1M_A_HarDWare_H@cker_Now}
 
 5. The Stone Guardian
 Diberikan sebuah gambar dan kita disuruh untuk menebak apa nama dari wahana pada gambar tersebut
