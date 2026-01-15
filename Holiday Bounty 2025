@@ -1,0 +1,67 @@
+Write Up CTF Holiday Bounty 2025
+Write by Ndhoo
+
+1. Silent Ping TBF1{1cmp_tunne1ing_is_n0t_stea1thy_enough}
+Category: Network Forensics
+File: silent_ping.pcap
+Pada challenge ini, sebuah Intrusion Detection System (IDS) gagal mendeteksi aktivitas mencurigakan berupa lonjakan trafik ICMP. Server database internal diketahui mengirimkan ribuan ICMP Echo Request ke sebuah IP eksternal pada pukul 03.00 pagi. Karena ping adalah lalu lintas yang umum, aktivitas ini tidak langsung dianggap berbahaya.
+Tujuan challenge adalah menyelidiki trafik ICMP tersebut dan menentukan data apa yang diselundupkan melalui payload ICMP.
+
+Langkah pertama adalah mengidentifikasi jenis trafik dalam PCAP:
+tshark -r silent_ping.pcap -Y "icmp"
+Karena payload dikirim secara terfragmentasi dalam banyak paket, seluruh payload perlu digabung:
+cat icmp_hex.txt | tr -d '\n' > all_hex.txt
+Setelah digabung, dilakukan decoding dari hex ke biner:
+xxd -r -p all_hex.txt decoded.bin
+Isi file hasil decode dianalisis:
+cat decoded.bin, didapatkan hasil:
+@nerr96  cat decoded.bin
+PingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataTBF1{1cmp_tunne1ing_is_n0t_stea1thy_enough}PingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalDataPingNormalData%                                                                        
+ketemu flagnya itu formatnya TBF
+
+2. SFR1 TBF1{r3scu1ng_9oph3r5_fr0m_flo0d5}
+Sebuah gopher terjebak di dalam sarangnya yang kebanjiran data rusak. Ia berhasil mengirimkan satu foto terakhir, namun file tersebut terlihat glitch/garbled dan file rahasia tidak bisa dibuka. Tugas kita adalah menganalisis file gambar tersebut dan menemukan flag yang tersembunyi.
+Langkah pertama dalam forensik file adalah memastikan tipe file sebenarnya.
+file broke.jpg
+JPEG image data, JFIF standard 1.01, baseline, 218x231
+Outputnya JPEG image data, JFIF standard 1.01, baseline, 218x231, yang berarti file adalah JPEG valid, bukan ekstensi palsu.
+Langkah kedua, karena file valid tetapi mencurigakan, dilakukan analisis struktur internal menggunakan binwalk.
+binwalk broke.jpg
+Outputnya:
+DECIMAL       HEXADECIMAL     DESCRIPTION
+---------------------------------------------------------
+0                               0x0                    JPEG image data
+30                            0x1E                   TIFF image data
+19886                     0x4DAE              End of Zip archive, footer length: 22
+Ditemukan ZIP footer (End of Zip archive). Namun tidak ditemukan header ZIP Ini menandakan ZIP sengaja dirusak / tidak lengkap. Oleh karena itu, binwalk -e gagal mengekstrak.
+Langkah ketiga, lakukan string analysis. Karena ZIP rusak, langkah berikutnya adalah mencari plaintext yang mungkin bocor menggunakan strings.
+strings -td broke.jpg | grep PK
+19774 TBF1{r3scu1ng_9oph3r5_fr0m_flo0d5}PK
+Maka didapatkan flagnya.
+
+3. Flag Checker TBF1{py7h0n_m4k3s_tr4n5f0rm50_e4sy}
+Langkah pertama adalah mengidentifikasi tipe file.
+file flagcheckerv2
+Outputnya: ELF 64-bit LSB executable, x86-64, dynamically linked
+Binary flagcheckerv2 pertama kali dianalisis menggunakan perintah file flagcheckerv2 dan diketahui merupakan executable ELF 64-bit Linux. Analisis awal menggunakan strings flagcheckerv2 memperlihatkan string “Enter the flag:”, “Wrong!”, dan “Correct!”, yang mengindikasikan bahwa program ini berfungsi sebagai flag checker dengan mekanisme validasi internal. 
+Analisis dinamis dilakukan menggunakan GNU Debugger dengan perintah gdb ./flagcheckerv2. Karena binary tidak memiliki simbol debug, eksekusi dimulai dari loader menggunakan starti. Untuk menemukan fungsi main, breakpoint dipasang pada __libc_start_main menggunakan break __libc_start_main, kemudian program dijalankan dengan continue. Saat breakpoint tercapai, register rdi diperiksa menggunakan info registers rdi karena register tersebut menyimpan alamat fungsi main. Breakpoint kemudian dipasang pada alamat tersebut menggunakan break *<alamat_main> dan eksekusi dilanjutkan.
+Setelah berada di fungsi main, instruksi dianalisis menggunakan x/80i $pc. Dari hasil disassembly terlihat bahwa program mencetak prompt, membaca input menggunakan fgets, menghapus karakter newline, lalu memproses input dalam sebuah loop. Setiap karakter input dipanggilkan ke sebuah fungsi transformasi dan hasilnya dibandingkan dengan array byte statis di memori. Jika terjadi ketidaksesuaian, program mencetak “Wrong!” dan berhenti, sedangkan jika semua karakter sesuai, program mencetak “Correct!”.
+Fungsi transformasi dianalisis dengan melakukan disassembly pada alamat pemanggilan fungsi menggunakan x/40i <alamat_fungsi>. Fungsi tersebut melakukan operasi XOR terhadap karakter input dengan nilai 0x67, kemudian memanggil fungsi lain yang berisi operasi bitwise. Disassembly fungsi kedua menggunakan x/40i <alamat_rotasi> menunjukkan operasi shift kanan satu bit dan shift kiri tujuh bit yang digabungkan dengan OR, yang merupakan implementasi dari operasi rotate right satu bit (ROR 1).
+Array byte target yang digunakan sebagai pembanding diekstraksi langsung dari memori menggunakan perintah x/40xb <alamat_array>. Panjang array tersebut adalah 35 byte, sehingga dapat disimpulkan bahwa panjang flag yang valid adalah 35 karakter. Untuk mendapatkan flag asli, transformasi dibalik dengan melakukan rotate left satu bit (ROL 1) terhadap setiap byte target, kemudian di-XOR kembali dengan 0x67.
+Proses pembalikan dilakukan menggunakan script Python sederhana untuk mengotomatisasi decoding seluruh byte target. Setelah flag berhasil direkonstruksi dan dimasukkan ke program, output yang dihasilkan adalah “Correct!”, yang menandakan bahwa flag yang diperoleh valid. Challenge ini menggunakan teknik obfuscation sederhana berbasis XOR dan rotasi bit, dan dapat diselesaikan sepenuhnya melalui analisis assembly dan pembalikan transformasi.
+
+4. Smart Toaster TBF1{moM_1o0k_1M_A_HarDWare_H@cker_Now}
+Sebuah perangkat internet-connected toaster menolak berfungsi kecuali pengguna memasukkan license key yang valid. Firmware perangkat berhasil diekstrak dalam bentuk file firmware.elf. Tujuan challenge ini adalah menganalisis firmware tersebut untuk menemukan mekanisme proteksi dan mendapatkan flag tersembunyi, tanpa harus benar-benar menjalankan firmware di perangkat asli.
+Langkah pertama adalah mengidentifikasi jenis dan arsitektur firmware menggunakan readelf
+readelf -h firmware.elf
+Hasilnya menunjukkan bahwa file tersebut adalah: ELF 32-bit, Little Endian, Target arsitektur: Atmel AVR 8-bit microcontroller. Ini menandakan bahwa firmware ditujukan untuk embedded system, sehingga analisis dilakukan menggunakan toolchain AVR seperti avr-objdump.
+Untuk mencari petunjuk awal, dilakukan ekstraksi string ASCII:
+strings firmware.elf | grep -i flag
+Ditemukan simbol bernama: encrypted_flag, itu berarti Flag sudah tersimpan di dalam firmware dan Flag tidak dalam bentuk plaintext
+Untuk mengetahui lokasi tepat data flag terenkripsi, digunakan nm:
+
+
+
+5. The Stone Guardian
+Diberikan sebuah gambar dan kita disuruh untuk menebak apa nama dari wahana pada gambar tersebut
+ 
